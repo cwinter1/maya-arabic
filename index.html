@@ -1323,6 +1323,35 @@ Q_YA.push(
   { type: 'flipcards', q: 'עוד צורות של האות י – הפכי כדי לראות:', cards: YA_FORMS.slice(2).map(([p, s]) => ({ front: AB(s), back: p })) }
 );
 
+// ===================== 9. NUMBERS 11-19 in words (from the notebook; read in Hebrew letters) =====================
+// unit + ת + עשר (standard Arabic: "ashar" after the unit), spelled as in the notebook.
+const TEENS = [[11, 'אחדעשר'], [12, 'תנאעשר'], [13, 'תלאתעשר'], [14, 'ארבעתעשר'], [15, 'חמסתעשר'], [16, 'סתעשר'], [17, 'סבעתעשר'], [18, 'תמאנתעשר'], [19, 'תסעתעשר']];
+const Q_TEENS = [];
+TEENS.forEach(([n, w], i) => {
+  const others = TEENS.filter(t => t[0] !== n);
+  Q_TEENS.push(mc1(`איך קוראים ${AB(toAr(n))}?`, w, take(others, i, 3, []).map(t => t[1]),
+    `${AR(toAr(n))} = ${n}, קוראים: ${w}.`));
+  Q_TEENS.push(mc1(`איזו ספרה ערבית היא "${w}"?`, AR(toAr(n)), take(others, i + 3, 3, []).map(t => AR(toAr(t[0]))),
+    `"${w}" = ${n} = ${AR(toAr(n))}.`));
+  Q_TEENS.push(mc1(`כמה זה "${w}"?`, String(n), take(others, i + 5, 3, []).map(t => String(t[0])),
+    `"${w}" = ${n}.`));
+});
+Q_TEENS.push(
+  tf('כל המספרים 11–19 נגמרים במילה "עשר"', true, 'נכון! אחדעשר, תנאעשר, תלאתעשר… כולם נגמרים ב"עשר" (10).'),
+  tf('"סתעשר" פירושו 16', true, `נכון! סתעשר = 16 (${AR(toAr(16))}).`),
+  tf('"סבעתעשר" פירושו 18', false, `לא נכון! סבעתעשר = 17 (${AR(toAr(17))}). 18 = תמאנתעשר.`),
+  tf('"חמסתעשר" פירושו 15', true, `נכון! חמסתעשר = 15 (${AR(toAr(15))}).`),
+  tf('"תלאתעשר" פירושו 14', false, `לא נכון! תלאתעשר = 13 (${AR(toAr(13))}). 14 = ארבעתעשר.`),
+  { type: 'sort', q: 'עד 15 או מעל 15?', bucketA: '15 ומטה', bucketB: 'מעל 15',
+    items: [{ text: 'תנאעשר', bucket: 0 }, { text: 'סבעתעשר', bucket: 1 }, { text: 'חמסתעשר', bucket: 0 }, { text: 'תסעתעשר', bucket: 1 }],
+    exp: '15 ומטה: תנאעשר (12), חמסתעשר (15). מעל 15: סבעתעשר (17), תסעתעשר (19).' },
+  { type: 'sort', q: 'עוד מיון: עד 15 או מעל 15?', bucketA: '15 ומטה', bucketB: 'מעל 15',
+    items: [{ text: 'אחדעשר', bucket: 0 }, { text: 'סתעשר', bucket: 1 }, { text: 'ארבעתעשר', bucket: 0 }, { text: 'תמאנתעשר', bucket: 1 }],
+    exp: '15 ומטה: אחדעשר (11), ארבעתעשר (14). מעל 15: סתעשר (16), תמאנתעשר (18).' },
+  { type: 'flipcards', q: 'המספרים 11–14 – הפכי כדי לראות:', cards: TEENS.slice(0, 4).map(([n, w]) => ({ front: AB(toAr(n)), back: `= ${n} · ${w}` })) },
+  { type: 'flipcards', q: 'המספרים 15–19 – הפכי כדי לראות:', cards: TEENS.slice(4).map(([n, w]) => ({ front: AB(toAr(n)), back: `= ${n} · ${w}` })) }
+);
+
 // ===================== MISSIONS =====================
 const MISSIONS = [
   {
@@ -1369,6 +1398,11 @@ const MISSIONS = [
     id: 8, icon: '✍️', title: 'צורות האות י', desc: 'בנפרד, בתחילת מילה, באמצע ובסוף', color: '#14b8a6',
     lesson: `לאות י (יא) יש ארבע צורות, ובכולן שתי נקודות מתחת: בנפרד ${AR('ي')} · בתחילת מילה ${AR('يـ')} · באמצע מילה ${AR('ـيـ')} · בסוף מילה ${AR('ـي')}. האות י מתחברת לאות שאחריה (בניגוד לאותיות ארז דוד).`,
     questions: Q_YA
+  },
+  {
+    id: 9, icon: '🔟', title: 'מספרים 11–19 במילים', desc: 'אחדעשר, תנאעשר, … תסעתעשר', color: '#f97316',
+    lesson: `המספרים 11–19: ${TEENS.map(([n, w]) => `${AR(toAr(n))} = ${w}`).join(' · ')}. כולם נגמרים במילה "עשר" (10).`,
+    questions: Q_TEENS
   }
 ];
 

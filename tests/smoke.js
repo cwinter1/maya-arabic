@@ -11,7 +11,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const URL = process.env.SMOKE_URL || 'file://' + path.resolve(__dirname, '..', 'index.html');
-const MISSIONS = 9;
+const MISSIONS = 10;
 const MAX = 100;
 
 const failures = [];
@@ -481,6 +481,17 @@ function check(name, ok, detail) {
       TENS.forEach(([n, w]) => {
         if (asked.includes('"' + w + '"') && (asked.startsWith('כמה') ? right !== String(n) : right !== toAr(n))) issues.push(`tens: wrong answer for ${asked}`);
         if (asked.startsWith('איך קוראים') && asked.replace('איך קוראים', '').replace('?', '').trim() === toAr(n) && right !== w) issues.push(`tens: wrong answer for ${asked}`);
+      });
+    });
+    // teens: the spoken word and the numeral go together as in the notebook, all end in עשר
+    const teens = { 11: 'אחדעשר', 12: 'תנאעשר', 13: 'תלאתעשר', 14: 'ארבעתעשר', 15: 'חמסתעשר', 16: 'סתעשר', 17: 'סבעתעשר', 18: 'תמאנתעשר', 19: 'תסעתעשר' };
+    if (TEENS.length !== 9) issues.push('teens: need 9 entries');
+    TEENS.forEach(([n, w]) => { if (teens[n] !== w) issues.push(`teens: ${n} should be ${teens[n]}, is ${w}`); if (!w.endsWith('עשר')) issues.push(`teens: ${w} must end in עשר`); });
+    Q_TEENS.filter(q => q.type === 'choice').forEach(q => {
+      const right = strip(q.opts[q.ans]), asked = strip(q.q);
+      TEENS.forEach(([n, w]) => {
+        if (asked.includes('"' + w + '"') && (asked.startsWith('כמה') ? right !== String(n) : right !== toAr(n))) issues.push(`teens: wrong answer for ${asked}`);
+        if (asked.startsWith('איך קוראים') && asked.replace('איך קוראים', '').replace('?', '').trim() === toAr(n) && right !== w) issues.push(`teens: wrong answer for ${asked}`);
       });
     });
     // the 35 rule from the notebook: units, then "and", then tens
