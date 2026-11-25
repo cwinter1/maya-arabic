@@ -11,7 +11,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const URL = process.env.SMOKE_URL || 'file://' + path.resolve(__dirname, '..', 'index.html');
-const MISSIONS = 5;
+const MISSIONS = 9;
 const MAX = 100;
 
 const failures = [];
@@ -463,6 +463,76 @@ function check(name, ok, detail) {
     return issues;
   });
   check('Arabic numerals, matching pools, "my" forms and letter-in-word claims are consistent', content.length === 0, content.slice(0, 3).join(' | '));
+
+  // ---------------------------------------------------------------
+  console.log('\nNotebook missions (numbers in words, u + sukun, new words, forms of yā)');
+  const extra = await page.evaluate(() => {
+    const issues = [];
+    const strip = h => h.replace(/<[^>]+>/g, '').trim();
+    const base = w => w.replace(/[ً-ْٰـ]/g, '').replace(/[أإآ]/g, 'ا');
+    // tens: the spoken word and the numeral go together as in the notebook
+    const want = { 10: 'עשרה', 20: 'עשרין', 30: 'תלתין', 40: 'ארבעין', 50: 'חמסין', 60: 'סתין', 70: 'סבעין', 80: 'תמנין', 90: 'תסעין', 100: 'מיה' };
+    TENS.forEach(([n, w]) => { if (want[n] !== w) issues.push(`tens: ${n} should be ${want[n]}, is ${w}`); });
+    if (TENS.length !== 10) issues.push('tens: need 10 entries');
+    // every tens question: the right option is the right word / numeral / number
+    Q_TENS.filter(q => q.type === 'choice').forEach(q => {
+      const right = strip(q.opts[q.ans]);
+      const asked = strip(q.q);
+      TENS.forEach(([n, w]) => {
+        if (asked.includes('"' + w + '"') && (asked.startsWith('כמה') ? right !== String(n) : right !== toAr(n))) issues.push(`tens: wrong answer for ${asked}`);
+        if (asked.startsWith('איך קוראים') && asked.replace('איך קוראים', '').replace('?', '').trim() === toAr(n) && right !== w) issues.push(`tens: wrong answer for ${asked}`);
+      });
+    });
+    // the 35 rule from the notebook: units, then "and", then tens
+    if (!Q_TENS.some(q => q.type === 'choice' && strip(q.opts[q.ans]) === 'חמסה ותלתין')) issues.push('35 = חמסה ותלתין is missing');
+    // u and sukun: right marks, right Hebrew reading, nothing else
+    const ARMARK = { damma: 'ُ', sukun: 'ْ' };
+    U_LET.forEach(l => {
+      if (!(l + DAMMA).includes(ARMARK.damma) || !(l + SUKUN).includes(ARMARK.sukun)) issues.push('u/sukun marks wrong');
+    });
+    if (HE_U !== 'ֻ' || HE_SH !== 'ְ') issues.push('Hebrew u/shva marks wrong');
+    Q_U.filter(q => q.type === 'choice').forEach(q => {
+      const qt = strip(q.q), right = strip(q.opts[q.ans]);
+      const syl = (q.q.match(/<span class="ar big"[^>]*>([^<]+)<\/span>/) || [])[1];
+      if (qt.startsWith('איך קוראים') && syl) {
+        const l = syl[0];
+        const expect = HE_LETTER[l] + (syl.includes(DAMMA) ? HE_U : HE_SH);
+        if (right !== expect) issues.push(`reading of ${syl} should be ${expect}, is ${right}`);
+      }
+    });
+    // new words: meanings, and every "letter in word" claim is true
+    const meaning = { 'يَا': 'היי (מילת פנייה)', 'وَزِير': 'שר', 'طَبِيب': 'רופא', 'دُرْزِي': 'דרוזי' };
+    WORDS2.forEach(([a, h]) => { if (meaning[a] !== h) issues.push(`word ${a} should mean ${meaning[a]}`); });
+    Q_NEW.filter(q => q.type === 'choice').forEach(q => {
+      const arIn = (q.q.match(/<span class="ar[^"]*"[^>]*>([^<]+)<\/span>/) || [])[1];
+      if (q.q.includes('איזו אות מופיעה')) {
+        const w = base(arIn);
+        q.opts.forEach((o, i) => { if (w.includes(base(strip(o))) !== (i === q.ans)) issues.push(`letter ${strip(o)} vs word ${w}`); });
+      }
+      if (q.q.includes('באיזו מילה מופיעה')) {
+        const letter = base(arIn);
+        q.opts.forEach((o, i) => { if (base(strip(o)).includes(letter) !== (i === q.ans)) issues.push(`word ${strip(o)} vs letter ${letter}`); });
+      }
+      if (q.q.includes('מתחילה')) {
+        const w = base(arIn);
+        q.opts.forEach((o, i) => { if ((w[0] === base(strip(o))) !== (i === q.ans)) issues.push(`first letter ${strip(o)} vs ${w}`); });
+      }
+    });
+    Q_NEW.filter(q => q.type === 'sort').forEach(q => {
+      const letter = base((q.q.match(/\(([^)]+)\)/) || [])[1] || '') ;
+      const L = q.q.includes('ז') ? 'ز' : 'ر';
+      q.items.forEach(it => { if (base(strip(it.text)).includes(L) !== (it.bucket === 0)) issues.push(`sort ${strip(it.text)} vs ${L}`); });
+    });
+    // yā forms: the right shape for each position, always two dots below, and only ي in the shapes
+    const shapes = { 'בנפרד (לבד)': 'ي', 'בסוף מילה': 'ـي', 'באמצע מילה': 'ـيـ', 'בתחילת מילה': 'يـ' };
+    YA_FORMS.forEach(([p, sh]) => { if (shapes[p] !== sh) issues.push(`yā form ${p} should be ${shapes[p]}`); });
+    Q_YA.filter(q => q.type === 'choice').forEach(q => {
+      if (q.q.includes('איך נכתבת האות י') && strip(q.opts[q.ans]) !== shapes[q.q.match(/\(יא\) (.*)\?/)[1].trim()]) issues.push('yā: wrong shape for ' + strip(q.q));
+      if (q.q.includes('איפה הנקודות') && strip(q.opts[q.ans]) !== 'שתיים מתחת לאות') issues.push('yā: dots must be two below');
+    });
+    return issues;
+  });
+  check('tens, u/sukun, new words and yā forms are correct and consistent', extra.length === 0, extra.slice(0, 3).join(' | '));
 
   // ---------------------------------------------------------------
   console.log('\nNothing broken on screen (every question, answered right and wrong)');
