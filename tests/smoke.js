@@ -31,6 +31,8 @@ function check(name, ok, detail) {
   // record every oscillator started, to prove sound is produced
   await page.addInitScript(() => {
     window.__osc = [];
+    window.__spoken = [];
+    if (window.speechSynthesis) { window.speechSynthesis.speak = u => { window.__spoken.push(u.text); }; window.speechSynthesis.cancel = () => {}; }
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
     const orig = AC.prototype.createOscillator;
@@ -544,6 +546,67 @@ function check(name, ok, detail) {
     return issues;
   });
   check('tens, u/sukun, new words and yā forms are correct and consistent', extra.length === 0, extra.slice(0, 3).join(' | '));
+
+  // ---------------------------------------------------------------
+  console.log('\nEncouragement, success gif and reading the Arabic aloud');
+  const sayCases = await page.evaluate(() => [
+    ['ا', 'ألف'], ['ر', 'راء'], ['ز', 'زاي'], ['د', 'دال'], ['و', 'واو'], ['ذ', 'ذال'], ['ي', 'ياء'], ['يـ', 'ياء'], ['ـيـ', 'ياء'], ['ـي', 'ياء'],
+    ['ـَ', 'فتحة'], ['ـِ', 'كسرة'], ['ـُ', 'ضمة'], ['ـْ', 'سكون'], ['دَ', 'دَ'], ['يَوْم', 'يَوْم'],
+  ].filter(([i, o]) => sayText(i) !== o).map(([i, o]) => `${i} -> ${sayText(i)} (expected ${o})`));
+  check('a letter is read by its name, a vowel mark by its name, anything else as written', sayCases.length === 0, sayCases.join(' | '));
+  const one = (qFilter) => page.evaluate(async f => {
+    const q = MISSIONS.flatMap(m => m.questions.map(x => ({ m, x }))).find(o => o.x.type === 'choice' && (new Function('q', 'return ' + f))(o.x));
+    const orig = pickRound; pickRound = mm => [q.x]; startMission(q.m.id); pickRound = orig;
+    await new Promise(r => setTimeout(r, 600));
+    return { spokenOnShow: window.__spoken.slice(), text: document.getElementById('question-area').innerText };
+  }, qFilter);
+  await page.evaluate(() => { window.__spoken.length = 0; });
+  const shown = await one("q.q.includes('class=\"ar big\"')");
+  check('a question with a big Arabic item reads it aloud when it appears', shown.spokenOnShow.length >= 1 && /[؀-ۿ]/.test(shown.spokenOnShow[0]), JSON.stringify(shown.spokenOnShow));
+  check('Arabic in the question can be tapped to hear it again', (await page.locator('#question-area .q-text .ar.speakable').count()) >= 1);
+  await page.evaluate(() => { window.__spoken.length = 0; });
+  await page.locator('#question-area .q-text .ar.speakable').first().click();
+  check('tapping the Arabic reads it', (await page.evaluate(() => window.__spoken.length)) === 1);
+  // right answer: a Hebrew praise phrase and the gif
+  await page.evaluate(() => { streak = 0; });
+  await answerQuestion(true);
+  const goodFb = await page.evaluate(() => ({ phrase: document.querySelector('#feedback strong').textContent, praise: PRAISE.includes(document.querySelector('#feedback strong').textContent),
+    gif: !!document.querySelector('#feedback img.fb-gif') }));
+  check('a right answer shows a Hebrew praise phrase from the list', goodFb.praise, goodFb.phrase);
+  check('a right answer shows the success gif', goodFb.gif);
+  await page.waitForTimeout(800);
+  check('the gif in the answer box loads', await page.evaluate(() => { const i = document.querySelector('#feedback img.fb-gif'); return !!i && i.complete && i.naturalWidth > 0; }));
+  await page.evaluate(() => { stopTimer(); goHome(); });
+  await one("q.opts[q.ans].includes('class=\"ar')");
+  await page.evaluate(() => { window.__spoken.length = 0; });
+  await answerQuestion(true);
+  await page.waitForTimeout(900);
+  const heard = await page.evaluate(() => window.__spoken.slice());
+  check('after answering, the right Arabic answer is read aloud', heard.length === 1 && /[\u0600-\u06FF]/.test(heard[0]), JSON.stringify(heard));
+  await page.evaluate(() => { stopTimer(); goHome(); });
+  // wrong answer: a kind phrase, no gif
+  await one("true");
+  await answerQuestion(false);
+  const badFb = await page.evaluate(() => ({ phrase: document.querySelector('#feedback strong').textContent, kind: TRY_AGAIN.includes(document.querySelector('#feedback strong').textContent), gif: !!document.querySelector('#feedback img.fb-gif') }));
+  check('a wrong answer shows an encouraging Hebrew phrase, no gif', badFb.kind && !badFb.gif, badFb.phrase);
+  await page.evaluate(() => { stopTimer(); goHome(); });
+  // the phrases are all Hebrew, all different, never the same twice in a row
+  const phrases = await page.evaluate(() => ({ all: [...PRAISE, ...TRY_AGAIN], dupes: new Set([...PRAISE, ...TRY_AGAIN]).size !== PRAISE.length + TRY_AGAIN.length,
+    seq: (() => { let prev = '', same = 0; for (let i = 0; i < 200; i++) { const p = pickPhrase(PRAISE); if (p === prev) same++; prev = p; } return same; })() }));
+  check('at least 8 praise and 5 encouragement phrases, all Hebrew and different', PRAISE_OK(phrases), JSON.stringify(phrases.all.slice(0, 2)));
+  check('the same phrase never comes twice in a row', phrases.seq === 0, phrases.seq);
+  // streak message after 3 right in a row
+  await one("true");
+  await page.evaluate(() => { streak = 2; });
+  await answerQuestion(true);
+  check('3 right answers in a row show a streak message', (await page.locator('#feedback .streak-line').count()) === 1);
+  await page.evaluate(() => { stopTimer(); goHome(); });
+  // muted: nothing is read
+  await page.evaluate(() => { soundOn = false; window.__spoken.length = 0; });
+  await one("q.q.includes('class=\"ar big\"')");
+  check('muted: nothing is read aloud', (await page.evaluate(() => window.__spoken.length)) === 0);
+  await page.evaluate(() => { soundOn = true; stopTimer(); goHome(); });
+  function PRAISE_OK(ph) { return ph.all.length >= 13 && !ph.dupes && ph.all.every(p => /[֐-׿]/.test(p)); }
 
   // ---------------------------------------------------------------
   console.log('\nNothing broken on screen (every question, answered right and wrong)');

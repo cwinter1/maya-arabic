@@ -651,6 +651,11 @@
     box-shadow: 0 4px 24px rgba(245,158,11,0.35);
   }
 
+  .fb-gif { display: block; max-height: 130px; max-width: 100%; margin: 8px auto 6px; border-radius: 12px; }
+  .streak-line { color: var(--gold); font-weight: 700; margin: 4px 0; }
+  .speakable { cursor: pointer; }
+  .speakable::after { content: ' 🔊'; font-size: 0.4em; vertical-align: middle; }
+
   .ar {
     font-family: 'Noto Naskh Arabic', 'Amiri', 'Geeza Pro', 'Traditional Arabic', 'DejaVu Sans', 'Arial', serif;
     font-size: 1.35em;
@@ -1583,6 +1588,7 @@ function startMission(id) {
     updateScore();
   }
 
+  streak = 0;
   currentRound = pickRound(currentMission);
   // flip cards are study-only (no points); the scored questions share the 100 points
   qWeight = MAX_PER_MISSION / Math.max(1, currentRound.filter(q => q.type !== 'flipcards').length);
@@ -1619,6 +1625,7 @@ function renderQuestion() {
   else if (q.type === 'sort') renderSort(q, area);
   else if (q.type === 'order') renderOrder(q, area);
   else if (q.type === 'match') renderMatch(q, area);
+  enhanceSpeech();
 }
 
 // ===== CHOICE =====
@@ -1702,6 +1709,8 @@ function flipCard(i) {
   const el = document.getElementById('fc'+i);
   el.classList.toggle('flipped');
   sounds.flip();
+  const fr = el.querySelector('.flip-front .ar');
+  if (fr) speakAr(fr.textContent);
 }
 
 // ===== SORT =====
@@ -2060,12 +2069,74 @@ function showFeedback(ok, exp, correctText) {
   fb.className = 'feedback-box show ' + (ok ? 'ok' : 'fail');
   fb.style.background = '';
   fb.style.border = '';
+  streak = ok ? streak + 1 : 0;
+  const phrase = pickPhrase(ok ? PRAISE : TRY_AGAIN);
+  const streakLine = ok && streak >= 3 ? `<div class="streak-line">🔥 ${streak} תשובות נכונות ברצף!</div>` : '';
   fb.innerHTML = `
     <div class="feedback-emoji">${ok ? '🎉' : '💡'}</div>
-    <strong>${ok ? 'כל הכבוד!' : 'לא מדויק...'}</strong><br>
+    <strong>${phrase}</strong><br>
+    ${streakLine}
+    ${ok ? `<img class="fb-gif" alt="" src="success.gif?t=${Date.now()}">` : ''}
     ${exp.replace(/\n/g, '<br>')}
     ${ok ? '' : learnNote(correctText)}
   `;
+  // hear the right answer when it is Arabic
+  const say = (String(correctText).match(/<span class="ar[^"]*"[^>]*>([^<]+)<\/span>/) || [])[1];
+  if (say) setTimeout(() => speakAr(say), 600);
+}
+
+// ===== SPEECH: the device reads the Arabic aloud =====
+const LETTER_SAY = { 'ا': 'ألف', 'ر': 'راء', 'ز': 'زاي', 'د': 'دال', 'و': 'واو', 'ذ': 'ذال', 'ي': 'ياء' };
+const MARK_SAY = { 'َ': 'فتحة', 'ِ': 'كسرة', 'ُ': 'ضمة', 'ْ': 'سكون' };
+// what to say for a piece of Arabic: a lone letter is read by its name, a lone vowel mark by its name, anything else as written
+function sayText(raw) {
+  const t = String(raw).replace(/\s+/g, ' ').trim();
+  const plain = t.replace(/[ً-ْٰـ]/g, '').replace(/[أإآ]/g, 'ا');
+  if (plain.length === 1 && LETTER_SAY[plain] && !/[ً-ْ]/.test(t)) return LETTER_SAY[plain];
+  const marks = t.replace(/ـ/g, '');
+  if (marks.length === 1 && MARK_SAY[marks]) return MARK_SAY[marks];
+  return t;
+}
+let arVoice = null, noVoiceWarned = false;
+function pickVoice() {
+  try { arVoice = speechSynthesis.getVoices().find(v => /^ar([-_]|$)/i.test(v.lang)) || null; } catch (e) { arVoice = null; }
+  return arVoice;
+}
+if ('speechSynthesis' in window) { pickVoice(); try { speechSynthesis.onvoiceschanged = pickVoice; } catch (e) {} }
+function speakAr(raw) {
+  if (!soundOn || !raw || !('speechSynthesis' in window)) return;
+  try {
+    const text = sayText(raw);
+    if (!text) return;
+    if (!pickVoice() && !noVoiceWarned && speechSynthesis.getVoices().length) {
+      noVoiceWarned = true;
+      showToast('אין במכשיר קול בערבית – ההקראה עלולה לא להישמע');
+    }
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = arVoice ? arVoice.lang : 'ar-SA';
+    if (arVoice) { try { u.voice = arVoice; } catch (e) {} }
+    u.rate = 0.8;
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+// every Arabic item in a question can be tapped to hear it; the big one (the letter / syllable / word asked about) is read when the question appears
+function enhanceSpeech() {
+  const spans = [...document.querySelectorAll('#question-area .q-text .ar, #question-area .tf-statement .ar')];
+  spans.forEach(sp => { sp.classList.add('speakable'); sp.onclick = () => speakAr(sp.textContent); });
+  const big = document.querySelector('#question-area .q-text .ar.big');
+  if (big) setTimeout(() => speakAr(big.textContent), 350);
+}
+
+// ===== ENCOURAGEMENT =====
+const PRAISE = ['כל הכבוד!', 'מעולה!', 'יפה מאוד!', 'בול!', 'אלופה!', 'מדהים!', 'ככה עושים את זה!', 'וואו, איזה יופי!', 'נכון מאוד!', 'את מתקדמת מצוין!'];
+const TRY_AGAIN = ['כמעט! בפעם הבאה זה יצא.', 'לא נורא, ככה לומדים!', 'עוד קצת ואת שם 💪', 'טעות קטנה – עכשיו את כבר יודעת.', 'אל תתייאשי, את בדרך הנכונה!', 'הכול בסדר, נסי לזכור את התשובה.'];
+let lastPhrase = '', streak = 0;
+function pickPhrase(list) {
+  let p;
+  do { p = list[Math.floor(Math.random() * list.length)]; } while (p === lastPhrase && list.length > 1);
+  lastPhrase = p;
+  return p;
 }
 
 // ===== NEXT QUESTION =====
